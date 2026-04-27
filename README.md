@@ -11,7 +11,35 @@
 
 - `backend` — Express API + cron-синхронизация + PostgreSQL
 - `frontend` — React (Vite) + Recharts + SSE-уведомления
-- `docker-compose.yml` — PostgreSQL
+- `docker-compose.yml` — PostgreSQL (образ с **TLS** + `pg_hba`, см. **`postgres/README.md`**)
+- `infra/` — отдельный стек: Nginx, Prometheus, Grafana, Alertmanager, Node Exporter, Jenkins, Telegram-бот, **n8n** (автоматизация), Terraform, Ansible (см. `infra/README.md`, `infra/n8n/README.md`, раздел ниже)
+- **Безопасность:** `infra/security/README.md`, `docker-compose.secure.yml` (TLS + Nginx reverse proxy, БД без публ. порта, админ-пользователи, бэкап/UFW/Fail2Ban/SSH — шаблоны и скрипты)
+
+## Серверлік инфрақұрылым (Terraform, Ansible, Bash)
+
+| Компонент | Где | Запуск |
+|-----------|-----|--------|
+| **Terraform** | `infra/terraform/` | `./tf-plan.sh` или `cd infra/terraform && terraform init && terraform plan` |
+| **Ansible** | `infra/ansible/` (`site.yml`, роли `common`, `docker_tools`) | `./ansible-site.sh` или `cd infra/ansible && ansible-playbook site.yml` |
+| **Деплой приложения** | `docker-compose.yml` в корне | `./deploy-app.sh` |
+| **Деплой infra-стека** | `infra/docker-compose.yml` | Сначала `cp infra/env.example infra/.env`, затем `./deploy-infra.sh` |
+| **Бэкап PostgreSQL** | дамп в `backups/` | `./backup-postgres.sh` (нужен запущенный контейнер `currency-postgres`) |
+
+Подробнее: `infra/terraform/README.md`, `infra/ansible/README.md`.
+
+## Git
+
+Репозиторий в корне проекта, ветка по умолчанию **`main`**. Секреты не коммитятся (см. `.gitignore`: `.env`, `backend/.env`, `infra/.env`, `.env.secure`, `backups/`, сертификаты и т.д.).
+
+**Выложить на GitHub:** создайте пустой репозиторий на github.com, затем:
+
+```bash
+cd /home/zarina/Загрузки/MPC/MPC
+git remote add origin https://github.com/ВАШ_ЛОГИН/currency-monitor.git
+git push -u origin main
+```
+
+Для SSH замените URL на `git@github.com:ВАШ_ЛОГИН/currency-monitor.git`. Jenkins: задайте `JENKINS_GIT_URL` в `infra/.env` на этот URL (см. `infra/jenkins/README.md`).
 
 ## Быстрый старт
 
