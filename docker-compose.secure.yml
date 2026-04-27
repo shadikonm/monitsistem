@@ -1,6 +1,18 @@
+# Безопасный запуск: PostgreSQL только во внутренней сети, API за Nginx + TLS (reverse proxy).
+# Из корня репозитория:
+#   cp .env.secure.example .env.secure
+#   docker compose -f docker-compose.secure.yml --env-file .env.secure up -d --build
+#
+# Сайт: https://localhost:8443/ (самоподписанный сертификат — браузер покажет предупреждение)
+
+name: currency-monitor-secure
+
 networks:
   app:
     driver: bridge
+
+volumes:
+  postgres_secure_data: {}
 
 services:
   postgres:
@@ -8,12 +20,12 @@ services:
       context: ./postgres
       dockerfile: Dockerfile
     image: currency-monitor-postgres:16
-    container_name: currency-postgres
+    container_name: currency-postgres-secure
     restart: unless-stopped
     environment:
       POSTGRES_DB: currency_db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     command:
       - postgres
       - -c
@@ -24,12 +36,8 @@ services:
       - ssl_key_file=/etc/postgresql/ssl/server.key
       - -c
       - hba_file=/etc/postgresql/pg_hba.conf
-    ports:
-      # Снаружи 5433 — чтобы не конфликтовать с локальным PostgreSQL / другим контейнером на :5432
-      # Внутри сети compose сервис всё равно слушает 5432 (api подключается к postgres:5432)
-      - '5433:5432'
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_secure_data:/var/lib/postgresql/data
     networks: [app]
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres -d currency_db']
@@ -41,43 +49,45 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: currency-api
+    container_name: currency-api-secure
     restart: unless-stopped
     environment:
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: currency_db
       DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_SSL: 'false'
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       PORT: 4000
       NODE_ENV: production
       TRUST_PROXY: 'true'
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://localhost:8443}
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-dev-admin-token-change-me}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-dev-jwt-secret-min-32-chars-change-me!!}
+      ADMIN_BOOTSTRAP_EMAIL: ${ADMIN_BOOTSTRAP_EMAIL:-admin@localhost}
+      ADMIN_BOOTSTRAP_PASSWORD: ${ADMIN_BOOTSTRAP_PASSWORD:-ChangeMe123!}
       SYNC_CRON: ${SYNC_CRON:-0 * * * * *}
       SOURCE_MODE: ${SOURCE_MODE:-FRANKFURTER}
       BASE_CURRENCY: ${BASE_CURRENCY:-USD}
       QUOTE_CURRENCIES: ${QUOTE_CURRENCIES:-*}
       FRANKFURTER_BASE_URL: ${FRANKFURTER_BASE_URL:-https://api.frankfurter.app}
       ALERT_THRESHOLD_PERCENT: ${ALERT_THRESHOLD_PERCENT:-2}
+      DB_SSL: 'false'
     networks: [app]
     depends_on:
       postgres:
         condition: service_healthy
-    expose:
-      - '4000'
 
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: currency-nginx
+  web:
+    build:
+      context: .
+      dockerfile: infra/security/Dockerfile.web
+      args:
+        VITE_API_BASE: ''
+    container_name: currency-web-secure
     restart: unless-stopped
-    networks: [app]
     ports:
-      # 8080 часто занят secure-стеком (web:8080); витрина API без TLS
-      - '8088:80'
-    volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - '${HTTPS_PORT:-8443}:443'
+      - '${HTTP_PORT:-8080}:80'
     depends_on:
       - api
-
-volumes:
-  postgres_data:
+    networks: [app]
